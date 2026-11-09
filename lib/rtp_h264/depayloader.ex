@@ -86,6 +86,12 @@ defmodule Membrane.RTP.H264.Depayloader do
     end
   end
 
+  # STAP-B, MTAP16, MTAP24 and FU-B (interleaved mode) as well as reserved types
+  # are not supported. Such packets may arrive from a remote peer at any time, so
+  # they are dropped instead of crashing the element.
+  defp handle_unit_type(unit_type, _nal, _buffer, _state),
+    do: {:error, {:unsupported_nal_type, unit_type}}
+
   defp buffer_output(data, buffer, state) do
     {action_from_data(data, buffer), state}
   end
@@ -102,7 +108,7 @@ defmodule Membrane.RTP.H264.Depayloader do
   defp log_malformed_buffer(packet, reason) do
     Membrane.Logger.warning("""
     An error occurred while parsing H264 RTP payload.
-    Reason: #{reason}
+    Reason: #{inspect(reason)}
     Packet: #{inspect(packet, limit: :infinity)}
     """)
   end

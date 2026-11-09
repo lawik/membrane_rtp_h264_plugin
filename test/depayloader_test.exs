@@ -114,4 +114,20 @@ defmodule Membrane.RTP.H264.DepayloaderTest do
                ~> Depayloader.handle_buffer(:input, &1, nil, @empty_state)
     end
   end
+
+  describe "Depayloader drops packets with unsupported or reserved NAL types" do
+    # type 0 (unspecified), 22-23 and 30-31 (reserved), STAP-B, MTAP16, MTAP24, FU-B
+    for type <- [0, 22, 23, 25, 26, 27, 29, 30, 31] do
+      test "when NAL type is #{type}" do
+        assert {[], @empty_state} ==
+                 %Buffer{
+                   metadata: %{rtp: %{sequence_number: 2}},
+                   payload: <<0::1, 0::2, unquote(type)::5, 1, 2, 3>>
+                 }
+                 ~> Depayloader.handle_buffer(:input, &1, nil, %Depayloader.State{
+                   parser_acc: %FU{}
+                 })
+      end
+    end
+  end
 end
