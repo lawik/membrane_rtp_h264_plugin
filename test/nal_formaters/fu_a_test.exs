@@ -34,5 +34,22 @@ defmodule Membrane.RTP.H264.FUTest do
     test "returns error when header is not valid" do
       assert {:error, :packet_malformed} == FU.parse(<<0::2, 1::1, 1::5>>, %FU{})
     end
+
+    test "returns error when the reassembled NAL unit grows beyond the size limit" do
+      payload = :binary.copy(<<0>>, 1024 * 1024)
+      first_fragment = <<1::1, 0::2, 1::5>> <> payload
+      middle_fragment = <<0::3, 1::5>> <> payload
+      {:incomplete, acc} = FU.parse(first_fragment, %FU{})
+
+      # a middle fragment is never the last one, so without a limit the accumulator
+      # would keep growing forever
+      assert {:error, :nalu_too_large} =
+               Enum.reduce_while(1..100, acc, fn _i, acc ->
+                 case FU.parse(middle_fragment, acc) do
+                   {:incomplete, acc} -> {:cont, acc}
+                   other -> {:halt, other}
+                 end
+               end)
+    end
   end
 end

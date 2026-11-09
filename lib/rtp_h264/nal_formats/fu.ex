@@ -6,9 +6,14 @@ defmodule Membrane.RTP.H264.FU do
   alias __MODULE__
   alias Membrane.RTP.H264.NAL
 
-  defstruct data: []
+  # Upper bound on the size of a NAL unit reassembled from FU-A fragments. A peer
+  # that keeps sending fragments without ever setting the end bit must not make
+  # the depayloader accumulate unbounded memory.
+  @max_nalu_size 8 * 1024 * 1024
 
-  @type t :: %__MODULE__{data: [binary()]}
+  defstruct data: [], size: 0
+
+  @type t :: %__MODULE__{data: [binary()], size: non_neg_integer()}
 
   @doc """
   Parses H264 Fragmentation Unit
@@ -20,7 +25,7 @@ defmodule Membrane.RTP.H264.FU do
   """
   @spec parse(binary(), t) ::
           {:ok, {binary(), NAL.Header.type()}}
-          | {:error, :packet_malformed | :invalid_first_packet}
+          | {:error, :packet_malformed | :invalid_first_packet | :nalu_too_large}
           | {:incomplete, t()}
   def parse(packet, acc) do
     with {:ok, {header, value}} <- FU.Header.parse(packet) do
@@ -71,10 +76,14 @@ defmodule Membrane.RTP.H264.FU do
   defp do_parse(header, packet, acc)
 
   defp do_parse(%FU.Header{start_bit: true}, packet, acc),
-    do: {:incomplete, %{acc | data: [packet]}}
+    do: {:incomplete, %{acc | data: [packet], size: byte_size(packet)}}
 
   defp do_parse(%FU.Header{start_bit: false}, _data, %__MODULE__{data: []}),
     do: {:error, :invalid_first_packet}
+
+  defp do_parse(_header, packet, %__MODULE__{size: size})
+       when size + byte_size(packet) > @max_nalu_size,
+       do: {:error, :nalu_too_large}
 
   defp do_parse(%FU.Header{end_bit: true, type: type}, packet, %__MODULE__{data: acc_data}) do
     result =
@@ -85,6 +94,6 @@ defmodule Membrane.RTP.H264.FU do
     {:ok, {result, type}}
   end
 
-  defp do_parse(_header, packet, %__MODULE__{data: acc_data} = fu),
-    do: {:incomplete, %{fu | data: [packet | acc_data]}}
+  defp do_parse(_header, packet, %__MODULE__{data: acc_data, size: size} = fu),
+    do: {:incomplete, %{fu | data: [packet | acc_data], size: size + byte_size(packet)}}
 end
